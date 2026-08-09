@@ -5,6 +5,7 @@
 // Aceita overrides via query string para rodar um backfill inicial maior:
 //   POST /scrape-trigger?dias=120&limite=200
 
+const TRIGGER_SECRET = Deno.env.get("TRIGGER_SECRET")!;
 const APIFY_TOKEN = Deno.env.get("APIFY_TOKEN")!;
 const APIFY_ACTOR_ID = Deno.env.get("APIFY_ACTOR_ID") ?? "apify~instagram-scraper";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -120,6 +121,14 @@ async function processInfluenciador(
 Deno.serve(async (req) => {
   try {
     const params = new URL(req.url).searchParams;
+    const secretRecebido = req.headers.get("x-trigger-secret") ?? params.get("secret");
+    if (secretRecebido !== TRIGGER_SECRET) {
+      return new Response(JSON.stringify({ ok: false, erro: "não autorizado" }), {
+        status: 401,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
     const janelaDias = Number(params.get("dias")) || JANELA_DIAS_PADRAO;
     const limite = Number(params.get("limite")) || LIMITE_PADRAO;
 

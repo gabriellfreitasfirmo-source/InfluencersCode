@@ -2,6 +2,7 @@
 // (usando a media_url direta, sem baixar nada) e categoriza via Gemini.
 // Pensado para rodar via cron logo após o scrape-trigger.
 
+const TRIGGER_SECRET = Deno.env.get("TRIGGER_SECRET")!;
 const ASSEMBLYAI_API_KEY = Deno.env.get("ASSEMBLYAI_API_KEY")!;
 const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY")!;
 // gemini-2.0-flash é o modelo estável mais barato no momento em que isso foi
@@ -100,8 +101,17 @@ async function categorizar(transcricao: string, legenda: string, metricas: {
   return EDITORIAS.includes(texto) ? texto : "outro";
 }
 
-Deno.serve(async (_req) => {
+Deno.serve(async (req) => {
   try {
+    const params = new URL(req.url).searchParams;
+    const secretRecebido = req.headers.get("x-trigger-secret") ?? params.get("secret");
+    if (secretRecebido !== TRIGGER_SECRET) {
+      return new Response(JSON.stringify({ ok: false, erro: "não autorizado" }), {
+        status: 401,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
     // conteúdo sem transcrição ainda, com media_url disponível
     const pendentes: any[] = await supabaseRequest(
       "conteudo?media_url=not.is.null&select=id,media_url,legenda," +

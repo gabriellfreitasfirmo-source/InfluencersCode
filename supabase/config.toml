@@ -1,0 +1,11 @@
+project_id = "ohlwhswsengxqprlvwhi"
+
+# Desligamos a exigência de JWT do Supabase nessas funções porque elas são
+# chamadas pelo cron (via pg_net) e, no backfill inicial, direto pelo
+# navegador. A proteção fica por conta do TRIGGER_SECRET verificado dentro
+# de cada função (ver header x-trigger-secret ou query ?secret=).
+[functions.scrape-trigger]
+verify_jwt = false
+
+[functions.process-content]
+verify_jwt = false
