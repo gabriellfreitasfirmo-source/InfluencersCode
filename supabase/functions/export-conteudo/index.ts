@@ -44,7 +44,7 @@ Deno.serve(async (req) => {
     const filtro = somenteTodos ? "" : "&editoria=is.null";
 
     const conteudos: any[] = await supabaseRequest(
-      "conteudo?select=id,url,tipo,data_publicacao,legenda,editoria," +
+      "conteudo?select=id,url,tipo,data_publicacao,legenda,editoria,subeditoria," +
         "influenciador(handle)," +
         "transcricao(texto)," +
         "metrica_snapshot(likes,comentarios,views,data_coleta)" +
@@ -64,6 +64,7 @@ Deno.serve(async (req) => {
       "comentarios",
       "views",
       "editoria",
+      "subeditoria",
     ];
 
     const linhas = conteudos.map((c) => {
@@ -84,6 +85,7 @@ Deno.serve(async (req) => {
         metrica.comentarios,
         metrica.views,
         c.editoria ?? "",
+        c.subeditoria ?? "",
       ].map(csvField).join(",");
     });
 
