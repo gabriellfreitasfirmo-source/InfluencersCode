@@ -110,7 +110,7 @@ Deno.serve(async (req) => {
     const limite = Number(params.get("limite")) || LIMITE_PADRAO;
 
     const pendentes: any[] = await supabaseRequest(
-      `conteudo?media_url=not.is.null&transcricao=is.null&select=id,media_url&limit=${limite}`,
+      `conteudo?media_url=not.is.null&transcricao=is.null&select=id,media_url,transcricao(id)&limit=${limite}`,
     );
 
     const resultados = [];
