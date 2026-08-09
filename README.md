@@ -44,9 +44,11 @@ Configurar em `Database > Cron Jobs` no Supabase (usa `pg_cron` +
 `pg_net` para chamar as Edge Functions via HTTP no horário definido).
 
 ## Pendências conhecidas
-- `scrape-trigger`: o mapeamento de campos do retorno do Apify (`mapItem`) é um
-  placeholder — precisa ser ajustado para o ator real que vocês usam.
-- Taxonomia de editorias em `process-content` é um placeholder inicial.
+- Taxonomia de editorias em `process-content` é um placeholder inicial —
+  ajustar para as editorias reais usadas na análise manual.
+- `mapItem` em `scrape-trigger` está ajustado para o ator `apify/instagram-scraper`
+  (posts com imagem não têm `media_url`, então não passam por transcrição/categorização
+  por vídeo — via legenda ainda seria possível, mas não é o foco do MVP).
 - Sem tratamento ainda para re-scrape com frequência diferenciada (diário para
   posts recentes, semanal para mais antigos) — todo o conteúdo em janela é
   reprocessado igualmente por enquanto.

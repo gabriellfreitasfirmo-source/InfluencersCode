@@ -1,13 +1,9 @@
-// Dispara o scrape no Apify para cada influenciador ativo e grava
-// conteúdo + snapshot de métricas no banco. Pensado para rodar via cron diário.
-//
-// IMPORTANTE: o mapeamento de campos abaixo (ITEM_FIELD_MAP) assume o formato
-// de saída de um ator genérico de scraping de Instagram/TikTok. Ajuste os
-// nomes de campo conforme o ator específico que vocês usam no Apify —
-// rode o ator uma vez e compare com o JSON retornado.
+// Dispara o scrape no Apify (apify/instagram-scraper) para cada influenciador
+// ativo e grava conteúdo + snapshot de métricas no banco. Pensado para rodar
+// via cron diário.
 
 const APIFY_TOKEN = Deno.env.get("APIFY_TOKEN")!;
-const APIFY_ACTOR_ID = Deno.env.get("APIFY_ACTOR_ID")!; // ex: "apify~instagram-scraper"
+const APIFY_ACTOR_ID = Deno.env.get("APIFY_ACTOR_ID") ?? "apify~instagram-scraper";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
@@ -47,8 +43,8 @@ async function runApifyActor(handle: string): Promise<any[]> {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      // TODO: ajustar conforme o input schema do ator escolhido no Apify.
-      username: handle,
+      resultsType: "posts",
+      directUrls: [`https://www.instagram.com/${handle}/`],
       resultsLimit: 60,
       onlyPostsNewerThan: desde.toISOString().slice(0, 10),
     }),
@@ -60,27 +56,24 @@ async function runApifyActor(handle: string): Promise<any[]> {
   return res.json();
 }
 
-// Normaliza o item retornado pelo Apify para o formato interno.
-// TODO: ajustar os nomes de campo conforme o ator real.
+// Normaliza o item retornado pelo apify/instagram-scraper para o formato interno.
 function mapItem(item: any) {
   return {
-    post_id: String(item.id ?? item.shortCode ?? item.postId),
-    url: item.url ?? item.postUrl,
-    media_url: item.videoUrl ?? item.mediaUrl ?? null,
-    tipo: item.type ?? item.productType ?? "post",
-    legenda: item.caption ?? item.text ?? "",
-    data_publicacao: item.timestamp ?? item.createTime ?? new Date().toISOString(),
-    likes: item.likesCount ?? item.diggCount ?? 0,
-    comentarios: item.commentsCount ?? item.commentCount ?? 0,
-    views: item.videoViewCount ?? item.playCount ?? null,
-    compartilhamentos: item.sharesCount ?? item.shareCount ?? null,
+    post_id: String(item.id ?? item.shortCode),
+    url: item.url,
+    media_url: item.videoUrl ?? null, // null em posts de imagem — nada a transcrever
+    tipo: item.type ?? "post",
+    legenda: item.caption ?? "",
+    data_publicacao: item.timestamp ?? new Date().toISOString(),
+    likes: item.likesCount ?? 0,
+    comentarios: item.commentsCount ?? 0,
+    views: item.videoViewCount ?? item.videoPlayCount ?? null,
+    compartilhamentos: null, // não exposto publicamente pelo Instagram
   };
 }
 
 async function processInfluenciador(influenciador: Influenciador) {
   const items = await runApifyActor(influenciador.handle);
-  let novos = 0;
-  let atualizados = 0;
 
   for (const raw of items) {
     const item = mapItem(raw);
@@ -111,11 +104,9 @@ async function processInfluenciador(influenciador: Influenciador) {
         compartilhamentos: item.compartilhamentos,
       }),
     });
-
-    conteudo.created_at === conteudo.updated_at ? novos++ : atualizados++;
   }
 
-  return { handle: influenciador.handle, posts_processados: items.length, novos, atualizados };
+  return { handle: influenciador.handle, posts_processados: items.length };
 }
 
 Deno.serve(async (_req) => {
