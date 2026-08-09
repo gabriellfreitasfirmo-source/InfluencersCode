@@ -88,8 +88,20 @@ do tempo máximo de execução da função, já que cada transcrição pode leva
 até ~1 minuto). Pra esvaziar uma fila maior, chame várias vezes ou configure
 o cron pra rodar com frequência (ex: a cada 2 minutos) até não sobrar pendente.
 
-### 5. Agendamento (cron) — já configurado via migration
-A migration `0003_configurar_cron.sql` cria dois jobs (`pg_cron` + `pg_net`):
+### 5. Agendamento (cron) — construído, mas desligado até ter cliente real
+**Importante**: os influenciadores cadastrados até agora (soulljess,
+mariliafavero) são só de teste e estão marcados como `ativo = false` — o
+cron não processa ninguém inativo. Isso é intencional: o pipeline recorrente
+só deve rodar de fato depois que houver um contrato/cliente real, pra não
+gastar Apify/AssemblyAI com testes.
+
+**Pra ativar de verdade quando fechar o primeiro cliente**, faltam dois passos
+(sem eles, o cron já configurado não tem efeito nenhum — nenhum custo, nenhuma
+chamada de verdade):
+1. Cadastre o influenciador com `ativo = true` (nova migration ou `update`)
+2. Rode o comando do Vault abaixo (uma vez só, nunca vai pro git)
+
+A migration `0003_configurar_cron.sql` já cria os dois jobs (`pg_cron` + `pg_net`):
 - `scrape-trigger-diario`: todo dia às 06:00 UTC (03:00 em Brasília)
 - `process-content-fila`: a cada 10 minutos, 5 itens por vez, até esvaziar a fila
 
