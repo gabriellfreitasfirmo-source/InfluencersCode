@@ -112,12 +112,13 @@ Deno.serve(async (req) => {
       });
     }
 
-    // conteúdo sem transcrição ainda, com media_url disponível
+    // conteúdo sem transcrição ainda, com media_url disponível. A ordenação
+    // por métrica mais recente é feita no código abaixo — o PostgREST não
+    // aceita "order" numa tabela relacionada 1-para-N como metrica_snapshot.
     const pendentes: any[] = await supabaseRequest(
       "conteudo?media_url=not.is.null&select=id,media_url,legenda," +
         "metrica_snapshot(likes,comentarios,views,data_coleta)," +
-        "transcricao(id)&transcricao=is.null" +
-        "&order=metrica_snapshot(data_coleta).desc",
+        "transcricao(id)&transcricao=is.null",
     );
 
     const resultados = [];
@@ -134,8 +135,10 @@ Deno.serve(async (req) => {
           }),
         });
 
-        const metricaMaisRecente = conteudo.metrica_snapshot?.[0] ??
-          { likes: 0, comentarios: 0, views: null };
+        const snapshots = [...(conteudo.metrica_snapshot ?? [])].sort(
+          (a, b) => new Date(b.data_coleta).getTime() - new Date(a.data_coleta).getTime(),
+        );
+        const metricaMaisRecente = snapshots[0] ?? { likes: 0, comentarios: 0, views: null };
 
         const editoria = await categorizar(texto, conteudo.legenda ?? "", metricaMaisRecente);
 
