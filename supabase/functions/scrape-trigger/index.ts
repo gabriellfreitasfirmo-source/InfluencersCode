@@ -87,8 +87,10 @@ async function processInfluenciador(
   for (const raw of items) {
     const item = mapItem(raw);
 
-    // upsert do conteúdo (identificado por influenciador_id + post_id)
-    const [conteudo] = await supabaseRequest("conteudo", {
+    // upsert do conteúdo (identificado por influenciador_id + post_id) —
+    // precisa do on_conflict explícito, senão o PostgREST tenta inserir como
+    // linha nova e bate na constraint de unicidade em vez de fazer merge.
+    const [conteudo] = await supabaseRequest("conteudo?on_conflict=influenciador_id,post_id", {
       method: "POST",
       headers: { Prefer: "resolution=merge-duplicates,return=representation" },
       body: JSON.stringify({
