@@ -9,3 +9,6 @@ verify_jwt = false
 
 [functions.process-content]
 verify_jwt = false
+
+[functions.export-conteudo]
+verify_jwt = false

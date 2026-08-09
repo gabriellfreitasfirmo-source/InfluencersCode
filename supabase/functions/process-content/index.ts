@@ -1,31 +1,18 @@
-// Para conteúdo ainda sem editoria: transcreve via AssemblyAI quando é vídeo
-// (posts de imagem pulam essa etapa) e categoriza via Gemini. Processa só
-// alguns itens por chamada (LIMITE_PADRAO) pra nunca passar do tempo máximo
-// de execução da Edge Function — o cron chama de novo até esvaziar a fila.
+// Para conteúdo de vídeo ainda sem transcrição: busca o vídeo (em memória,
+// nada em disco) e envia pra AssemblyAI. Posts de imagem não passam por
+// aqui (não tem o que transcrever). A categorização (campo `editoria`) fica
+// como etapa manual por enquanto — ver README.
+//
+// Processa só alguns itens por chamada (LIMITE_PADRAO) pra nunca passar do
+// tempo máximo de execução da Edge Function — o cron chama de novo até
+// esvaziar a fila.
 
 const LIMITE_PADRAO = 1;
 
 const TRIGGER_SECRET = Deno.env.get("TRIGGER_SECRET")!;
 const ASSEMBLYAI_API_KEY = Deno.env.get("ASSEMBLYAI_API_KEY")!;
-const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY")!;
-// gemini-2.0-flash é o modelo estável mais barato no momento em que isso foi
-// escrito. Se o Google lançar um "flash" mais novo/barato, troque aqui ou via
-// secret GEMINI_MODEL — confira nomes atuais em ai.google.dev/gemini-api/docs/models.
-const GEMINI_MODEL = Deno.env.get("GEMINI_MODEL") ?? "gemini-2.0-flash";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-
-// Taxonomia inicial de editorias — ajustar com base no que vocês já usam hoje.
-const EDITORIAS = [
-  "bastidores",
-  "educativo",
-  "humor",
-  "review_produto",
-  "storytime",
-  "tutorial",
-  "opiniao",
-  "outro",
-];
 
 async function supabaseRequest(path: string, init: RequestInit = {}) {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
@@ -101,45 +88,12 @@ async function transcrever(mediaUrl: string): Promise<string> {
     if (data.status === "completed") return data.text ?? "";
     if (data.status === "error") {
       // Alguns vídeos do Instagram são servidos sem faixa de áudio embutida.
-      // Não é um erro pra tentar de novo — tratamos como transcrição vazia
-      // e seguimos a categorização só com a legenda.
+      // Não é um erro pra tentar de novo — tratamos como transcrição vazia.
       if (String(data.error).includes("No audio stream found")) return "";
       throw new Error(`AssemblyAI erro: ${data.error}`);
     }
   }
   throw new Error("Timeout esperando transcrição do AssemblyAI");
-}
-
-async function categorizar(transcricao: string, legenda: string, metricas: {
-  likes: number;
-  comentarios: number;
-  views: number | null;
-}): Promise<string> {
-  const prompt =
-    `Classifique o conteúdo abaixo em UMA das editorias: ${EDITORIAS.join(", ")}.\n\n` +
-    `Legenda: ${legenda}\n\n` +
-    `Transcrição: ${transcricao}\n\n` +
-    `Métricas: ${metricas.likes} likes, ${metricas.comentarios} comentários` +
-    (metricas.views ? `, ${metricas.views} views` : "") +
-    `.\n\nResponda APENAS com o nome exato de uma editoria da lista, nada mais.`;
-
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
-    {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { maxOutputTokens: 20 },
-      }),
-    },
-  );
-  if (!res.ok) {
-    throw new Error(`Gemini falhou: ${res.status} ${await res.text()}`);
-  }
-  const data = await res.json();
-  const texto = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim().toLowerCase() ?? "outro";
-  return EDITORIAS.includes(texto) ? texto : "outro";
 }
 
 Deno.serve(async (req) => {
@@ -155,56 +109,25 @@ Deno.serve(async (req) => {
 
     const limite = Number(params.get("limite")) || LIMITE_PADRAO;
 
-    // "Pendente" = ainda não tem editoria — não importa se é vídeo ou
-    // imagem, e não importa se a transcrição (quando existe) já foi feita
-    // numa tentativa anterior que falhou na categorização. Isso evita dois
-    // problemas: (1) posts de imagem nunca eram categorizados (não tinham
-    // media_url, então nunca entravam na fila antiga baseada em transcrição);
-    // (2) um post cuja transcrição funcionou mas a categorização falhou
-    // (ex: erro de cota do Gemini) ficava travado pra sempre, porque a fila
-    // antiga olhava só "tem transcrição?", e a transcrição já tinha sido
-    // salva antes do erro.
     const pendentes: any[] = await supabaseRequest(
-      "conteudo?editoria=is.null&select=id,media_url,legenda," +
-        "metrica_snapshot(likes,comentarios,views,data_coleta)," +
-        `transcricao(texto)&limit=${limite}`,
+      `conteudo?media_url=not.is.null&transcricao=is.null&select=id,media_url&limit=${limite}`,
     );
 
     const resultados = [];
     for (const conteudo of pendentes) {
       try {
-        let texto: string;
-        if (conteudo.transcricao) {
-          // já transcrito numa tentativa anterior — não gasta AssemblyAI de novo
-          texto = conteudo.transcricao.texto;
-        } else if (conteudo.media_url) {
-          texto = await transcrever(conteudo.media_url);
-          await supabaseRequest("transcricao", {
-            method: "POST",
-            body: JSON.stringify({
-              conteudo_id: conteudo.id,
-              texto,
-              provider: "assemblyai",
-            }),
-          });
-        } else {
-          // post de imagem — sem vídeo, nada a transcrever
-          texto = "";
-        }
+        const texto = await transcrever(conteudo.media_url);
 
-        const snapshots = [...(conteudo.metrica_snapshot ?? [])].sort(
-          (a, b) => new Date(b.data_coleta).getTime() - new Date(a.data_coleta).getTime(),
-        );
-        const metricaMaisRecente = snapshots[0] ?? { likes: 0, comentarios: 0, views: null };
-
-        const editoria = await categorizar(texto, conteudo.legenda ?? "", metricaMaisRecente);
-
-        await supabaseRequest(`conteudo?id=eq.${conteudo.id}`, {
-          method: "PATCH",
-          body: JSON.stringify({ editoria }),
+        await supabaseRequest("transcricao", {
+          method: "POST",
+          body: JSON.stringify({
+            conteudo_id: conteudo.id,
+            texto,
+            provider: "assemblyai",
+          }),
         });
 
-        resultados.push({ conteudo_id: conteudo.id, editoria, ok: true });
+        resultados.push({ conteudo_id: conteudo.id, ok: true });
       } catch (err) {
         resultados.push({ conteudo_id: conteudo.id, ok: false, erro: String(err) });
       }

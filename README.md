@@ -1,8 +1,10 @@
 # Pipeline de Análise de Influenciadores
 
-MVP interno: automatiza scrape (Apify) → transcrição (AssemblyAI) → categorização
-por editoria (Gemini) → histórico de métricas. Tudo rodando em Supabase
-(Postgres + Edge Functions + Cron), sem servidor próprio.
+MVP interno: automatiza scrape (Apify) → transcrição (AssemblyAI) →
+histórico de métricas. Tudo rodando em Supabase (Postgres + Edge Functions +
+Cron), sem servidor próprio. A categorização por editoria (campo `editoria`
+em `conteudo`) é feita manualmente por enquanto — ver seção "Categorização
+manual" abaixo.
 
 ## Arquitetura
 
@@ -15,13 +17,32 @@ Cron diário
 
 Cron diário (logo depois)
   └─> process-content (Edge Function)
-        -> para conteúdo sem editoria: se for vídeo, busca o vídeo (em
+        -> para conteúdo de vídeo sem transcrição: busca o vídeo (em
            memória, nada em disco) e envia pra AssemblyAI — o CDN do
            Instagram bloqueia a AssemblyAI baixando direto da URL, então a
-           função faz essa ponte. Posts de imagem pulam a transcrição.
-        -> categoriza a editoria via Gemini (flash), usando legenda +
-           transcrição (quando existir) + métricas
+           função faz essa ponte. Posts de imagem não passam por aqui.
 ```
+
+## Categorização manual (por enquanto)
+
+Testamos categorização automática via Gemini, mas a conta ficou com cota
+gratuita zerada (bloqueio da própria Google, não resolvido). Pra não travar
+o MVP nisso, a categorização virou um passo manual, em 3 partes:
+
+1. **Exportar** — acesse (com o `TRIGGER_SECRET`):
+   ```
+   https://<PROJECT_ID>.supabase.co/functions/v1/export-conteudo?secret=<TRIGGER_SECRET>
+   ```
+   Baixa um CSV com `conteudo_id, handle, url, tipo, data_publicacao, legenda,
+   transcricao, likes, comentarios, views, editoria` de tudo que ainda não
+   tem editoria. Use `&todos=1` para exportar tudo, incluindo já categorizado.
+2. **Categorizar** — preencha a coluna `editoria` no CSV do seu jeito (usando
+   sua conta da Anthropic, por exemplo).
+3. **Aplicar** — devolva o arquivo preenchido; eu transformo em uma migration
+   com `UPDATE conteudo SET editoria = ... WHERE id = ...` por linha, e a
+   correção entra pelo pipeline normal (commit → deploy automático).
+
+Automatizar essa etapa de novo (com Claude ou outro provedor) fica pra depois.
 
 ## Configuração necessária
 
@@ -73,11 +94,11 @@ Configurar em `Database > Cron Jobs` no Supabase (usa `pg_cron` +
 o header `x-trigger-secret` com o mesmo valor do `TRIGGER_SECRET`).
 
 ## Pendências conhecidas
-- Taxonomia de editorias em `process-content` é um placeholder inicial —
-  ajustar para as editorias reais usadas na análise manual.
 - `mapItem` em `scrape-trigger` está ajustado para o ator `apify/instagram-scraper`
-  (posts com imagem não têm `media_url`, então não passam por transcrição/categorização
-  por vídeo — via legenda ainda seria possível, mas não é o foco do MVP).
+  (posts com imagem não têm `media_url`, então não passam por transcrição —
+  só entram no CSV de categorização com a legenda, sem transcrição).
 - Sem tratamento ainda para re-scrape com frequência diferenciada (diário para
   posts recentes, semanal para mais antigos) — todo o conteúdo em janela é
   reprocessado igualmente por enquanto.
+- Categorização automática (via LLM) fica pausada até decidirmos um provedor
+  que não trave em cota — ver seção "Categorização manual" acima.
