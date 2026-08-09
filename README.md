@@ -88,10 +88,25 @@ do tempo máximo de execução da função, já que cada transcrição pode leva
 até ~1 minuto). Pra esvaziar uma fila maior, chame várias vezes ou configure
 o cron pra rodar com frequência (ex: a cada 2 minutos) até não sobrar pendente.
 
-### 5. Agendamento (cron)
-Configurar em `Database > Cron Jobs` no Supabase (usa `pg_cron` +
-`pg_net` para chamar as Edge Functions via HTTP no horário definido, passando
-o header `x-trigger-secret` com o mesmo valor do `TRIGGER_SECRET`).
+### 5. Agendamento (cron) — já configurado via migration
+A migration `0003_configurar_cron.sql` cria dois jobs (`pg_cron` + `pg_net`):
+- `scrape-trigger-diario`: todo dia às 06:00 UTC (03:00 em Brasília)
+- `process-content-fila`: a cada 10 minutos, 5 itens por vez, até esvaziar a fila
+
+**Passo manual único, antes da migration funcionar**: o valor do
+`TRIGGER_SECRET` não pode ir pro git, então ele é guardado no Vault do
+Supabase. Rode isso **uma vez** no SQL Editor do Supabase (troque
+`SUA_SENHA` pelo mesmo valor cadastrado no secret `TRIGGER_SECRET` das
+Edge Functions):
+```sql
+select vault.create_secret('SUA_SENHA', 'trigger_secret');
+```
+Depois disso, os crons já funcionam sozinhos — nenhuma chamada manual
+precisa mais ser feita pra manter o pipeline de scrape + transcrição rodando.
+
+Pra conferir se os jobs estão rodando: `select * from cron.job;` e
+`select * from cron.job_run_details order by start_time desc limit 10;`
+no SQL Editor.
 
 ## Pendências conhecidas
 - `mapItem` em `scrape-trigger` está ajustado para o ator `apify/instagram-scraper`
