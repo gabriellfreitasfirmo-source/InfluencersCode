@@ -15,10 +15,12 @@ Cron diário
 
 Cron diário (logo depois)
   └─> process-content (Edge Function)
-        -> para conteúdo sem transcrição: busca o vídeo (em memória, nada em
-           disco) e envia pra AssemblyAI — o CDN do Instagram bloqueia a
-           AssemblyAI baixando direto da URL, então a função faz essa ponte
-        -> categoriza a editoria via Gemini (flash)
+        -> para conteúdo sem editoria: se for vídeo, busca o vídeo (em
+           memória, nada em disco) e envia pra AssemblyAI — o CDN do
+           Instagram bloqueia a AssemblyAI baixando direto da URL, então a
+           função faz essa ponte. Posts de imagem pulam a transcrição.
+        -> categoriza a editoria via Gemini (flash), usando legenda +
+           transcrição (quando existir) + métricas
 ```
 
 ## Configuração necessária

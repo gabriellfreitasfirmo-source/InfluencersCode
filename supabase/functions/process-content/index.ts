@@ -1,5 +1,5 @@
-// Para conteúdo ainda sem transcrição: transcreve via AssemblyAI (usando a
-// media_url direta, sem baixar nada) e categoriza via Gemini. Processa só
+// Para conteúdo ainda sem editoria: transcreve via AssemblyAI quando é vídeo
+// (posts de imagem pulam essa etapa) e categoriza via Gemini. Processa só
 // alguns itens por chamada (LIMITE_PADRAO) pra nunca passar do tempo máximo
 // de execução da Edge Function — o cron chama de novo até esvaziar a fila.
 
@@ -155,29 +155,42 @@ Deno.serve(async (req) => {
 
     const limite = Number(params.get("limite")) || LIMITE_PADRAO;
 
-    // conteúdo sem transcrição ainda, com media_url disponível. A ordenação
-    // por métrica mais recente é feita no código abaixo — o PostgREST não
-    // aceita "order" numa tabela relacionada 1-para-N como metrica_snapshot.
-    // O "limit" aqui é o que evita passar do tempo máximo de execução.
+    // "Pendente" = ainda não tem editoria — não importa se é vídeo ou
+    // imagem, e não importa se a transcrição (quando existe) já foi feita
+    // numa tentativa anterior que falhou na categorização. Isso evita dois
+    // problemas: (1) posts de imagem nunca eram categorizados (não tinham
+    // media_url, então nunca entravam na fila antiga baseada em transcrição);
+    // (2) um post cuja transcrição funcionou mas a categorização falhou
+    // (ex: erro de cota do Gemini) ficava travado pra sempre, porque a fila
+    // antiga olhava só "tem transcrição?", e a transcrição já tinha sido
+    // salva antes do erro.
     const pendentes: any[] = await supabaseRequest(
-      "conteudo?media_url=not.is.null&select=id,media_url,legenda," +
+      "conteudo?editoria=is.null&select=id,media_url,legenda," +
         "metrica_snapshot(likes,comentarios,views,data_coleta)," +
-        `transcricao(id)&transcricao=is.null&limit=${limite}`,
+        `transcricao(texto)&limit=${limite}`,
     );
 
     const resultados = [];
     for (const conteudo of pendentes) {
       try {
-        const texto = await transcrever(conteudo.media_url);
-
-        await supabaseRequest("transcricao", {
-          method: "POST",
-          body: JSON.stringify({
-            conteudo_id: conteudo.id,
-            texto,
-            provider: "assemblyai",
-          }),
-        });
+        let texto: string;
+        if (conteudo.transcricao) {
+          // já transcrito numa tentativa anterior — não gasta AssemblyAI de novo
+          texto = conteudo.transcricao.texto;
+        } else if (conteudo.media_url) {
+          texto = await transcrever(conteudo.media_url);
+          await supabaseRequest("transcricao", {
+            method: "POST",
+            body: JSON.stringify({
+              conteudo_id: conteudo.id,
+              texto,
+              provider: "assemblyai",
+            }),
+          });
+        } else {
+          // post de imagem — sem vídeo, nada a transcrever
+          texto = "";
+        }
 
         const snapshots = [...(conteudo.metrica_snapshot ?? [])].sort(
           (a, b) => new Date(b.data_coleta).getTime() - new Date(a.data_coleta).getTime(),
