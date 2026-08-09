@@ -44,14 +44,45 @@ async function supabaseRequest(path: string, init: RequestInit = {}) {
   return res.json();
 }
 
+// O CDN do Instagram bloqueia requisições servidor-a-servidor sem os headers
+// de navegador (a AssemblyAI recebia "could not connect to the host" tentando
+// baixar direto). Por isso buscamos o vídeo aqui dentro (em memória, nada vai
+// pro disco) e mandamos os bytes pra AssemblyAI via upload, em vez de só
+// passar a URL.
+async function baixarEEnviarParaAssemblyAI(mediaUrl: string): Promise<string> {
+  const video = await fetch(mediaUrl, {
+    headers: {
+      "User-Agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
+      Referer: "https://www.instagram.com/",
+    },
+  });
+  if (!video.ok) {
+    throw new Error(`Download do vídeo falhou: ${video.status}`);
+  }
+
+  const upload = await fetch("https://api.assemblyai.com/v2/upload", {
+    method: "POST",
+    headers: { authorization: ASSEMBLYAI_API_KEY },
+    body: video.body, // stream direto, sem acumular tudo em memória
+  });
+  if (!upload.ok) {
+    throw new Error(`Upload pra AssemblyAI falhou: ${upload.status} ${await upload.text()}`);
+  }
+  const { upload_url } = await upload.json();
+  return upload_url;
+}
+
 async function transcrever(mediaUrl: string): Promise<string> {
+  const uploadUrl = await baixarEEnviarParaAssemblyAI(mediaUrl);
+
   const submit = await fetch("https://api.assemblyai.com/v2/transcript", {
     method: "POST",
     headers: {
       authorization: ASSEMBLYAI_API_KEY,
       "content-type": "application/json",
     },
-    body: JSON.stringify({ audio_url: mediaUrl, language_code: "pt" }),
+    body: JSON.stringify({ audio_url: uploadUrl, language_code: "pt" }),
   });
   if (!submit.ok) {
     throw new Error(`AssemblyAI submit falhou: ${submit.status} ${await submit.text()}`);
