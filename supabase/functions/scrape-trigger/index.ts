@@ -1,13 +1,17 @@
 // Dispara o scrape no Apify (apify/instagram-scraper) para cada influenciador
 // ativo e grava conteúdo + snapshot de métricas no banco. Pensado para rodar
-// via cron diário.
+// via cron diário com a janela padrão de 60 dias.
+//
+// Aceita overrides via query string para rodar um backfill inicial maior:
+//   POST /scrape-trigger?dias=120&limite=200
 
 const APIFY_TOKEN = Deno.env.get("APIFY_TOKEN")!;
 const APIFY_ACTOR_ID = Deno.env.get("APIFY_ACTOR_ID") ?? "apify~instagram-scraper";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
-const JANELA_DIAS = 60;
+const JANELA_DIAS_PADRAO = 60;
+const LIMITE_PADRAO = 60;
 
 interface Influenciador {
   id: string;
@@ -32,12 +36,12 @@ async function supabaseRequest(path: string, init: RequestInit = {}) {
   return res.json();
 }
 
-async function runApifyActor(handle: string): Promise<any[]> {
+async function runApifyActor(handle: string, janelaDias: number, limite: number): Promise<any[]> {
   const url =
     `https://api.apify.com/v2/acts/${APIFY_ACTOR_ID}/run-sync-get-dataset-items?token=${APIFY_TOKEN}`;
 
   const desde = new Date();
-  desde.setDate(desde.getDate() - JANELA_DIAS);
+  desde.setDate(desde.getDate() - janelaDias);
 
   const res = await fetch(url, {
     method: "POST",
@@ -45,7 +49,7 @@ async function runApifyActor(handle: string): Promise<any[]> {
     body: JSON.stringify({
       resultsType: "posts",
       directUrls: [`https://www.instagram.com/${handle}/`],
-      resultsLimit: 60,
+      resultsLimit: limite,
       onlyPostsNewerThan: desde.toISOString().slice(0, 10),
     }),
   });
@@ -72,8 +76,12 @@ function mapItem(item: any) {
   };
 }
 
-async function processInfluenciador(influenciador: Influenciador) {
-  const items = await runApifyActor(influenciador.handle);
+async function processInfluenciador(
+  influenciador: Influenciador,
+  janelaDias: number,
+  limite: number,
+) {
+  const items = await runApifyActor(influenciador.handle, janelaDias, limite);
 
   for (const raw of items) {
     const item = mapItem(raw);
@@ -109,8 +117,12 @@ async function processInfluenciador(influenciador: Influenciador) {
   return { handle: influenciador.handle, posts_processados: items.length };
 }
 
-Deno.serve(async (_req) => {
+Deno.serve(async (req) => {
   try {
+    const params = new URL(req.url).searchParams;
+    const janelaDias = Number(params.get("dias")) || JANELA_DIAS_PADRAO;
+    const limite = Number(params.get("limite")) || LIMITE_PADRAO;
+
     const influenciadores: Influenciador[] = await supabaseRequest(
       "influenciador?ativo=eq.true&select=id,handle,plataforma",
     );
@@ -118,7 +130,7 @@ Deno.serve(async (_req) => {
     const resultados = [];
     for (const inf of influenciadores) {
       try {
-        resultados.push(await processInfluenciador(inf));
+        resultados.push(await processInfluenciador(inf, janelaDias, limite));
       } catch (err) {
         resultados.push({ handle: inf.handle, erro: String(err) });
       }
