@@ -1,6 +1,9 @@
-// Para cada conteúdo ainda sem transcrição: transcreve via AssemblyAI
-// (usando a media_url direta, sem baixar nada) e categoriza via Gemini.
-// Pensado para rodar via cron logo após o scrape-trigger.
+// Para conteúdo ainda sem transcrição: transcreve via AssemblyAI (usando a
+// media_url direta, sem baixar nada) e categoriza via Gemini. Processa só
+// alguns itens por chamada (LIMITE_PADRAO) pra nunca passar do tempo máximo
+// de execução da Edge Function — o cron chama de novo até esvaziar a fila.
+
+const LIMITE_PADRAO = 1;
 
 const TRIGGER_SECRET = Deno.env.get("TRIGGER_SECRET")!;
 const ASSEMBLYAI_API_KEY = Deno.env.get("ASSEMBLYAI_API_KEY")!;
@@ -55,9 +58,10 @@ async function transcrever(mediaUrl: string): Promise<string> {
   }
   const { id } = await submit.json();
 
-  // Polling — aceitável no volume do MVP; se o vídeo demorar mais que ~2min
-  // de processamento, considerar mover para um fluxo assíncrono com webhook.
-  for (let tentativa = 0; tentativa < 40; tentativa++) {
+  // Polling com teto de ~90s — deixa margem dentro do tempo máximo de
+  // execução da Edge Function. Se estourar, cai no catch do item e tenta de
+  // novo na próxima chamada (a transcrição não fica "pela metade" no banco).
+  for (let tentativa = 0; tentativa < 30; tentativa++) {
     await new Promise((r) => setTimeout(r, 3000));
     const check = await fetch(`https://api.assemblyai.com/v2/transcript/${id}`, {
       headers: { authorization: ASSEMBLYAI_API_KEY },
@@ -112,13 +116,16 @@ Deno.serve(async (req) => {
       });
     }
 
+    const limite = Number(params.get("limite")) || LIMITE_PADRAO;
+
     // conteúdo sem transcrição ainda, com media_url disponível. A ordenação
     // por métrica mais recente é feita no código abaixo — o PostgREST não
     // aceita "order" numa tabela relacionada 1-para-N como metrica_snapshot.
+    // O "limit" aqui é o que evita passar do tempo máximo de execução.
     const pendentes: any[] = await supabaseRequest(
       "conteudo?media_url=not.is.null&select=id,media_url,legenda," +
         "metrica_snapshot(likes,comentarios,views,data_coleta)," +
-        "transcricao(id)&transcricao=is.null",
+        `transcricao(id)&transcricao=is.null&limit=${limite}`,
     );
 
     const resultados = [];

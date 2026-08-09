@@ -57,6 +57,12 @@ https://<PROJECT_ID>.supabase.co/functions/v1/scrape-trigger?secret=<TRIGGER_SEC
 Pra um backfill de 4 meses: `?secret=...&dias=120&limite=200`. Depois disso,
 o cron recorrente continua usando os valores padrão (60/60).
 
+O `process-content` aceita só `?secret=...&limite=N` (processa N conteúdos
+pendentes por chamada, padrão 1 — mantém baixo de propósito pra nunca passar
+do tempo máximo de execução da função, já que cada transcrição pode levar
+até ~1 minuto). Pra esvaziar uma fila maior, chame várias vezes ou configure
+o cron pra rodar com frequência (ex: a cada 2 minutos) até não sobrar pendente.
+
 ### 5. Agendamento (cron)
 Configurar em `Database > Cron Jobs` no Supabase (usa `pg_cron` +
 `pg_net` para chamar as Edge Functions via HTTP no horário definido, passando
