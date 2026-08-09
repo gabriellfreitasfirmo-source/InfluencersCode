@@ -1,9 +1,13 @@
 // Para cada conteúdo ainda sem transcrição: transcreve via AssemblyAI
-// (usando a media_url direta, sem baixar nada) e categoriza via Claude.
+// (usando a media_url direta, sem baixar nada) e categoriza via Gemini.
 // Pensado para rodar via cron logo após o scrape-trigger.
 
 const ASSEMBLYAI_API_KEY = Deno.env.get("ASSEMBLYAI_API_KEY")!;
-const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY")!;
+const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY")!;
+// gemini-2.0-flash é o modelo estável mais barato no momento em que isso foi
+// escrito. Se o Google lançar um "flash" mais novo/barato, troque aqui ou via
+// secret GEMINI_MODEL — confira nomes atuais em ai.google.dev/gemini-api/docs/models.
+const GEMINI_MODEL = Deno.env.get("GEMINI_MODEL") ?? "gemini-2.0-flash";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
@@ -77,24 +81,22 @@ async function categorizar(transcricao: string, legenda: string, metricas: {
     (metricas.views ? `, ${metricas.views} views` : "") +
     `.\n\nResponda APENAS com o nome exato de uma editoria da lista, nada mais.`;
 
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "x-api-key": ANTHROPIC_API_KEY,
-      "anthropic-version": "2023-06-01",
-      "content-type": "application/json",
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { maxOutputTokens: 20 },
+      }),
     },
-    body: JSON.stringify({
-      model: "claude-haiku-4-5",
-      max_tokens: 20,
-      messages: [{ role: "user", content: prompt }],
-    }),
-  });
+  );
   if (!res.ok) {
-    throw new Error(`Anthropic falhou: ${res.status} ${await res.text()}`);
+    throw new Error(`Gemini falhou: ${res.status} ${await res.text()}`);
   }
   const data = await res.json();
-  const texto = data.content?.[0]?.text?.trim().toLowerCase() ?? "outro";
+  const texto = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim().toLowerCase() ?? "outro";
   return EDITORIAS.includes(texto) ? texto : "outro";
 }
 

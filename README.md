@@ -1,7 +1,7 @@
 # Pipeline de Análise de Influenciadores
 
 MVP interno: automatiza scrape (Apify) → transcrição (AssemblyAI) → categorização
-por editoria (Claude) → histórico de métricas. Tudo rodando em Supabase
+por editoria (Gemini) → histórico de métricas. Tudo rodando em Supabase
 (Postgres + Edge Functions + Cron), sem servidor próprio.
 
 ## Arquitetura
@@ -16,7 +16,7 @@ Cron diário
 Cron diário (logo depois)
   └─> process-content (Edge Function)
         -> para conteúdo sem transcrição: chama AssemblyAI com a media_url direta
-        -> categoriza a editoria via Claude (Haiku)
+        -> categoriza a editoria via Gemini (flash)
 ```
 
 ## Configuração necessária
@@ -30,8 +30,10 @@ Em `Settings > Secrets and variables > Actions` no repositório:
 ### 2. Secrets das Edge Functions (para as chamadas de API)
 No painel do Supabase: `Edge Functions > Manage secrets`, ou via CLI:
 ```
-supabase secrets set APIFY_TOKEN=... APIFY_ACTOR_ID=... ASSEMBLYAI_API_KEY=... ANTHROPIC_API_KEY=...
+supabase secrets set APIFY_TOKEN=... APIFY_ACTOR_ID=... ASSEMBLYAI_API_KEY=... GEMINI_API_KEY=...
 ```
+(`APIFY_ACTOR_ID` default é `apify~instagram-scraper`; `GEMINI_MODEL` é opcional,
+default `gemini-2.0-flash` — só precisa cadastrar se quiser trocar o modelo.)
 (`SUPABASE_URL` e `SUPABASE_SERVICE_ROLE_KEY` já ficam disponíveis automaticamente
 dentro das Edge Functions.)
 
