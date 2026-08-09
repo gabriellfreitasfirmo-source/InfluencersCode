@@ -99,7 +99,13 @@ async function transcrever(mediaUrl: string): Promise<string> {
     });
     const data = await check.json();
     if (data.status === "completed") return data.text ?? "";
-    if (data.status === "error") throw new Error(`AssemblyAI erro: ${data.error}`);
+    if (data.status === "error") {
+      // Alguns vídeos do Instagram são servidos sem faixa de áudio embutida.
+      // Não é um erro pra tentar de novo — tratamos como transcrição vazia
+      // e seguimos a categorização só com a legenda.
+      if (String(data.error).includes("No audio stream found")) return "";
+      throw new Error(`AssemblyAI erro: ${data.error}`);
+    }
   }
   throw new Error("Timeout esperando transcrição do AssemblyAI");
 }
