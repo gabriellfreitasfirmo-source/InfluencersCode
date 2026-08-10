@@ -108,9 +108,12 @@ Deno.serve(async (req) => {
     }
 
     const limite = Number(params.get("limite")) || LIMITE_PADRAO;
+    const handle = params.get("handle");
+    const filtroHandle = handle ? `&influenciador.handle=eq.${encodeURIComponent(handle)}` : "";
 
     const pendentes: any[] = await supabaseRequest(
-      `conteudo?media_url=not.is.null&transcricao=is.null&select=id,media_url,transcricao(id)&limit=${limite}`,
+      "conteudo?media_url=not.is.null&transcricao=is.null" +
+        `&select=id,media_url,transcricao(id),influenciador(handle)${filtroHandle}&limit=${limite}`,
     );
 
     const resultados = [];
